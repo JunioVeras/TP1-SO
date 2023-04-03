@@ -2,7 +2,7 @@
 # Arquivo      : Makefile
 # Conteudo     : Implementação de thread
 # Autor        : Vinícius Braga Freire (vinicius.braga@dcc.ufmg.br)
-#				 Júnio Veras de Jesus Lima (// TODO: email do junio)
+#				 Júnio Veras de Jesus Lima (junio.veras@dcc.ufmg.br)
 # Historico    : 2023-04-03 - arquivo criado
 #-------------------------------------------------------------------------------
 # Opções	: make all - compila tudo
