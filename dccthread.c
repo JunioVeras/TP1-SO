@@ -16,8 +16,8 @@
 typedef void (*callback_t)(int);
 
 /**
- * @brief 
- * 
+ * @brief A struct that defines a DCC thread.
+ *
  */
 struct dccthread {
     char* t_name;
@@ -27,29 +27,30 @@ struct dccthread {
     int param;
 };
 
-
-
 /**
- * @brief 
- * 
- * @param func 
- * @param param 
+ * @brief
+ *
+ * @param func
+ * @param param
  */
-void dccthread_init(void (*func)(int), int param) 
-{
-
+void dccthread_init(void (*func)(int), int param) {
+    // Defines the scheduler context as the current context, allowing the other
+    // threads to come back Scheduler run
+    getcontext(&scheduler_ctx);
+    //
+    exit(EXIT_SUCCESS);
 }
 
 /**
  * @brief Creates a dcc thread
- * 
- * @param name 
- * @param func 
- * @param param 
- * @return dccthread_t* 
+ *
+ * @param name
+ * @param func
+ * @param param
+ * @return dccthread_t*
  */
 dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
-    dccthread_t* new_thread = (dccthread_t*) malloc(sizeof(dccthread_t) );
+    dccthread_t* new_thread = (dccthread_t*)malloc(sizeof(dccthread_t));
     // Instantiate the thread
     new_thread->t_name = name;
     new_thread->callback_f = func;
