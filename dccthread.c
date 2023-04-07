@@ -68,7 +68,10 @@ void dccthread_init(void (*func)(int), int param) {
             if(data->state == RUNNABLE) {
                 // Execute the thread function
                 swapcontext(&main_ctx, &data->t_context);
+                // Transfer a finished/not finished thread to the end of thread
+                // lists
                 dlist_remove_from_node(threads_list, cur);
+                dlist_push_right(threads_list, cur);
                 break;
             }
             cur = cur->next;

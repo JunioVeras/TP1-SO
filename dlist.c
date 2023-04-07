@@ -149,8 +149,16 @@ void dlist_remove_from_node(struct dlist* dl, struct dnode* node) /* {{{ */
 {
     // Make sure it is not used on empty list
     if(!dl->head) return;
+    if(dl->count == 1) {
+        dl->head = NULL;
+        dl->tail = NULL;
+    }
     if(node == dl->head) {
         dl->head = dl->head->next;
+        free(node);
+    }
+    else if(node == dl->tail) {
+        dl->tail = node->prev;
         free(node);
     }
     else {
