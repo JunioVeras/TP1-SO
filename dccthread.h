@@ -4,18 +4,13 @@
 #include <stdlib.h>
 #include <time.h>
 #include <ucontext.h>
+#include "dlist.h"
+#include "stdio.h"
 
 typedef struct dccthread dccthread_t;
 
 #define DCCTHREAD_MAX_NAME_SIZE 256
 #define THREAD_STACK_SIZE (1 << 16)
-
-/**
- * @brief The scheduler context, used to come back to the scheduler after
- * preemption
- *
- */
-ucontext_t scheduler_ctx;
 
 /* `dccthread_init` initializes any state necessary for the
  * threadling library and starts running `func`.  this function
