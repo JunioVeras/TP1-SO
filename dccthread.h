@@ -1,6 +1,7 @@
 #ifndef __DCCTHREAD_HEADER__
 #define __DCCTHREAD_HEADER__
 
+#include <signal.h>
 #include <stdlib.h>
 #include <time.h>
 #include <ucontext.h>

@@ -47,11 +47,41 @@ struct scheduler {
      *
      */
     dccthread_t* current_thread;
+    /**
+     * @brief Timer interval value.
+     *
+     */
+    struct itimerspec timer_interval;
+    /**
+     * @brief Timer id.
+     *
+     */
+    timer_t timer_id;
 };
 
 static scheduler_t scheduler;
 
 typedef void (*callback_t)(int);
+
+/**
+ * @brief Function that makes a thread yield and comeback to the scheduler.
+ *
+ */
+void dccthread_yield(void) {
+    dccthread_t* current_thread = dccthread_self();
+    current_thread->state = RUNNABLE;
+    // Swap back to the scheduler context
+    swapcontext(&current_thread->t_context, &scheduler.main_ctx);
+}
+
+/**
+ * @brief Timer handler for thread pre-emption.
+ *
+ */
+void timer_handler() {
+    // Stops the current thread
+    dccthread_yield();
+}
 
 /**
  * @brief Function responsible for simulating a thread scheduler.
@@ -71,6 +101,20 @@ void dccthread_init(void (*func)(int), int param) {
     }
     dccthread_create("main", func, param);
 
+    //
+    scheduler.timer_interval.it_value.tv_nsec = 10000000;
+    scheduler.timer_interval.it_value.tv_sec = 0;
+    scheduler.timer_interval.it_interval.tv_nsec =
+        scheduler.timer_interval.it_value.tv_nsec;
+    scheduler.timer_interval.it_interval.tv_sec =
+        scheduler.timer_interval.it_value.tv_sec;
+
+    struct sigaction sa;
+    struct sigevent sev;
+
+    sev.sigev_notify = SIGEV_THREAD;
+    sev.sigev_notify_function = &timer_handler;
+
     // While there are threads to be computed
     while(scheduler.threads_list->count) {
         struct dnode* cur = scheduler.threads_list->head;
@@ -82,9 +126,19 @@ void dccthread_init(void (*func)(int), int param) {
                 curThread->state = RUNNING;
                 scheduler.current_thread = curThread;
 
+                // Create timer
+                timer_create(
+                    CLOCK_PROCESS_CPUTIME_ID, &sev, &scheduler.timer_id);
+                // Start timer
+                timer_settime(
+                    scheduler.timer_id, 0, &scheduler.timer_interval, NULL);
+
                 // Execute the thread function
                 swapcontext(&scheduler.main_ctx, &curThread->t_context);
 
+                timer_delete(scheduler.timer_id);
+
+                // If thread was deleted
                 if(scheduler.current_thread != NULL) {
                     // Reset the flags
                     scheduler.current_thread = NULL;
@@ -134,17 +188,6 @@ dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
     dlist_push_right(scheduler.threads_list, new_thread);
     //
     return new_thread;
-}
-
-/**
- * @brief Function that makes a thread yield and comeback to the scheduler.
- *
- */
-void dccthread_yield(void) {
-    dccthread_t* current_thread = dccthread_self();
-    current_thread->state = RUNNABLE;
-    // Swap back to the scheduler context
-    swapcontext(&current_thread->t_context, &scheduler.main_ctx);
 }
 
 /**
