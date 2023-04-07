@@ -21,6 +21,7 @@ SRC := ./
 LIST_SRC_C := $(wildcard $(SRC)*.c)
 LIST_OBJ := $(patsubst $(SRC)%.c, $(OBJ)%.o, $(LIST_SRC_C)) $(TEST).o
 LIST_TEST_OBJ := $(wildcard ./tests/*.o)
+LIST_ERR_OUT := $(wildcard ./*.out ./*.err)
 
 $(OBJ)%.o: $(SRC)%.c
 	$(CPP) -c $< -o $@ -I $(INC)
@@ -30,7 +31,7 @@ all: $(LIST_OBJ)
 	$(CPP) -o $(TARGET) $(LIST_OBJ) 
 
 clean:
-	rm $(TARGET) $(LIST_OBJ) ./gcc.log $(LIST_TEST_OBJ)
+	rm $(TARGET) $(LIST_OBJ) ./gcc.log $(LIST_TEST_OBJ) $(LIST_ERR_OUT)
 
 proof:
 	gprof $(BIN)$(TARGET) ./bin/gmon.out > ./tmp/analise.txt

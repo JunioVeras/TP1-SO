@@ -17,7 +17,7 @@
  * @brief An enumeration of all avaiable thread states.
  *
  */
-enum u_int8_t { RUNNING, RUNNABLE } THREAD_STATE;
+enum u_int8_t { RUNNING, RUNNABLE, WAITING } THREAD_STATE;
 
 /**
  * @brief A struct that defines a DCC thread.
@@ -27,6 +27,7 @@ struct dccthread {
     const char* t_name;
     enum u_int8_t state;
     ucontext_t t_context;
+    dccthread_t* t_waiting;
 };
 
 struct scheduler {
@@ -76,22 +77,25 @@ void dccthread_init(void (*func)(int), int param) {
         // Iterate over thread lists
         while(cur) {
             dccthread_t* curThread = cur->data;
-            // Set some flags to indicate the current thread being used
-            curThread->state = RUNNING;
-            scheduler.current_thread = curThread;
+            if(curThread->state != WAITING) {
+                // Set some flags to indicate the current thread being used
+                curThread->state = RUNNING;
+                scheduler.current_thread = curThread;
 
-            // Execute the thread function
-            swapcontext(&scheduler.main_ctx, &curThread->t_context);
+                // Execute the thread function
+                swapcontext(&scheduler.main_ctx, &curThread->t_context);
 
-            // Reset the flags
-            scheduler.current_thread = NULL;
-            // Remove this thread from the list and if the thread hasn't
-            // finished, puts in the end (least priority)
-            dlist_remove_from_node(scheduler.threads_list, cur);
-            if(curThread->state == RUNNABLE)
-                dlist_push_right(scheduler.threads_list, curThread);
-
-            break;
+                if(scheduler.current_thread != NULL) {
+                    // Reset the flags
+                    scheduler.current_thread = NULL;
+                    // Remove this thread from the list and if the thread hasn't
+                    // finished, puts in the end (least priority)
+                    dlist_remove_from_node(scheduler.threads_list, cur);
+                    if(curThread->state != RUNNING)
+                        dlist_push_right(scheduler.threads_list, curThread);
+                }
+                break;
+            }
 
             cur = cur->next;
         }
@@ -141,6 +145,61 @@ void dccthread_yield(void) {
     current_thread->state = RUNNABLE;
     // Swap back to the scheduler context
     swapcontext(&current_thread->t_context, &scheduler.main_ctx);
+}
+
+/**
+ * @brief Function that stops a thread execution flow and removes it from the
+ * threads list
+ *
+ */
+void dccthread_exit(void) {
+    dccthread_t* cur_thread = dccthread_self();
+    struct dnode* cur = scheduler.threads_list->head;
+    //
+    while(cur) {
+        dccthread_t* t = cur->data;
+        if(t == cur_thread) {
+            // Make sure to release the waiting threads
+            if(t->t_waiting) {
+                t->t_waiting->state = RUNNABLE;
+            }
+            scheduler.current_thread = NULL;
+            // Removes node from the list
+            dlist_remove_from_node(scheduler.threads_list, cur);
+            // Removes this thread
+            free(cur_thread);
+            ucontext_t local_ctx;
+            swapcontext(&local_ctx, &scheduler.main_ctx);
+            return;
+        }
+        //
+        cur = cur->next;
+    }
+}
+
+/**
+ * @brief Function that makes the current thread wait for another one. If this
+ * this thread doesn't exists, then this threads waits for nothing.
+ *
+ * @param tid Pointer to the thread to be waited.
+ */
+void dccthread_wait(dccthread_t* tid) {
+    dccthread_t* curThread = dccthread_self();
+
+    // Search for the thread to be awaited
+    struct dnode* cur = scheduler.threads_list->head;
+    while(cur) {
+        dccthread_t* t = cur->data;
+        // If it's the thread to be awaited
+        if(t == tid) {
+            curThread->state = WAITING;
+            t->t_waiting = curThread;
+            swapcontext(&curThread->t_context, &scheduler.main_ctx);
+            return;
+        }
+        //
+        cur = cur->next;
+    }
 }
 
 /**
