@@ -8,6 +8,7 @@
 #include "stdio.h"
 
 typedef struct dccthread dccthread_t;
+typedef struct scheduler scheduler_t;
 
 #define DCCTHREAD_MAX_NAME_SIZE 256
 #define THREAD_STACK_SIZE (1 << 16)
