@@ -12,7 +12,7 @@ void test_fast(int dummy) {
 void test_slow(int dummy) {
     dccthread_create("fast", test_fast, 2);
     int a = 0;
-    for(int i = 0; i < 300000000; i++) {
+    for(int i = 0; i < 800000000; i++) {
         a++;
     }
     printf("Thread %s executada aqui com argumento %d\n",
