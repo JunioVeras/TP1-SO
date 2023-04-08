@@ -72,11 +72,6 @@ struct scheduler {
      *
      */
     struct sigaction sa;
-    /**
-     * @brief Set of all signs used by the scheduler.
-     *
-     */
-    sigset_t set;
 };
 
 static scheduler_t scheduler;
@@ -123,9 +118,7 @@ void dccthread_init(void (*func)(int), int param) {
                 scheduler.current_thread = curThread;
 
                 // Execute the thread function
-                sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
                 swapcontext(&scheduler.main_ctx, &curThread->t_context);
-                sigprocmask(SIG_BLOCK, &scheduler.set, NULL);
 
                 // If thread was deleted
                 if(scheduler.current_thread != NULL) {
@@ -150,9 +143,6 @@ void dccthread_init(void (*func)(int), int param) {
 }
 
 dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
-    // Block timer signal
-    sigprocmask(SIG_BLOCK, &scheduler.set, NULL);
-
     dccthread_t* new_thread = (dccthread_t*)malloc(sizeof(dccthread_t));
     // Instantiate the thread
     new_thread->t_name = name;
@@ -173,28 +163,17 @@ dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
     // Add this thread to the end of the list of waiting threads
     dlist_push_right(scheduler.threads_list, new_thread);
 
-    // Unblock timer signal
-    sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
     return new_thread;
 }
 
 void dccthread_yield(void) {
-    // Block timer signal
-    sigprocmask(SIG_BLOCK, &scheduler.set, NULL);
-
     dccthread_t* current_thread = dccthread_self();
     current_thread->state = RUNNABLE;
-
-    // Unblock timer signal
-    // sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
     // Swap back to the scheduler context
     swapcontext(&current_thread->t_context, &scheduler.main_ctx);
 }
 
 void dccthread_exit(void) {
-    // Block timer signal
-    sigprocmask(SIG_BLOCK, &scheduler.set, NULL);
-
     dccthread_t* cur_thread = dccthread_self();
     struct dnode* cur = scheduler.threads_list->head;
     //
@@ -220,15 +199,9 @@ void dccthread_exit(void) {
         //
         cur = cur->next;
     }
-
-    // Unblock timer signal
-    // sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
 }
 
 void dccthread_wait(dccthread_t* tid) {
-    // Block timer signal
-    sigprocmask(SIG_BLOCK, &scheduler.set, NULL);
-
     dccthread_t* curThread = dccthread_self();
 
     // Search for the thread to be awaited
@@ -248,9 +221,6 @@ void dccthread_wait(dccthread_t* tid) {
         //
         cur = cur->next;
     }
-
-    // Unblock timer signal
-    sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
 }
 
 dccthread_t* dccthread_self(void) { return scheduler.current_thread; }
@@ -272,9 +242,6 @@ void configure_timer() {
     scheduler.sa.sa_handler = timer_handler;
     scheduler.sa.sa_flags = SA_RESTART | SA_SIGINFO;
     sigaction(SIGUSR1, &scheduler.sa, NULL);
-    // Set the set of signs
-    sigemptyset(&scheduler.set);
-    sigaddset(&scheduler.set, SIGUSR1);
     // Create timer
     if(timer_create(
            CLOCK_PROCESS_CPUTIME_ID, &scheduler.sev, &scheduler.timer_id)
@@ -284,12 +251,9 @@ void configure_timer() {
     }
     // Start timer
     timer_settime(scheduler.timer_id, 0, &scheduler.timer_interval, NULL);
-    // Block timer signal
-    sigprocmask(SIG_BLOCK, &scheduler.set, NULL);
 }
 
 void timer_handler(int signal) {
     // Stops the current thread
-    puts("aaaaaaaaaaaa");
     dccthread_yield();
 }
