@@ -1,7 +1,7 @@
 #!/bin/bash
 set -u
 
-i=101
+i=103
 
 gcc -g -Wall -I. tests/test$i.c dccthread.o dlist.o -o test$i -lrt &>> gcc.log
 if [ ! -x test$i ] ; then

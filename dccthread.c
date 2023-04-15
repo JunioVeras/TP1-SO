@@ -13,6 +13,8 @@
 
 #include "dccthread.h"
 
+#define PRE_EMPTION_SIG SIGUSR1
+
 /**
  * @brief An enumeration of all avaiable thread states.
  *
@@ -40,7 +42,7 @@ struct scheduler {
      * thread execution
      *
      */
-    ucontext_t main_ctx;
+    ucontext_t ctx;
     /**
      * @brief Threads list menaged by the scheduler.
      */
@@ -72,6 +74,11 @@ struct scheduler {
      *
      */
     struct sigaction sa;
+    /**
+     * @brief A signal set.
+     *
+     */
+    sigset_t signals_set, os;
 };
 
 static scheduler_t scheduler;
@@ -94,14 +101,14 @@ void timer_handler(int);
 void dccthread_init(void (*func)(int), int param) {
     // Create the list to hold all the threads managed by the scheduler
     scheduler.threads_list = dlist_create();
-    // scheduler.main_ctx.uc_sigmask
+    // Create main thread
+    dccthread_create("main", func, param);
+
     // Change to the manager thread context and call the scheduler function
-    // ucontext_t scheduler_ctx;
-    if(getcontext(&scheduler.main_ctx) == -1) {
+    if(getcontext(&scheduler.ctx) == -1) {
         printf("Error while getting context\n");
         exit(EXIT_FAILURE);
     }
-    dccthread_create("main", func, param);
 
     // Configure the timer
     configure_timer();
@@ -118,7 +125,7 @@ void dccthread_init(void (*func)(int), int param) {
                 scheduler.current_thread = curThread;
 
                 // Execute the thread function
-                swapcontext(&scheduler.main_ctx, &curThread->t_context);
+                swapcontext(&scheduler.ctx, &curThread->t_context);
 
                 // If thread was deleted
                 if(scheduler.current_thread != NULL) {
@@ -147,16 +154,20 @@ dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
     // Instantiate the thread
     new_thread->t_name = name;
     new_thread->state = RUNNABLE;
+    new_thread->t_waiting = NULL;
     // Create a new context and stack
     if(getcontext(&new_thread->t_context) == -1) {
         puts("Error while getting context...exiting\n");
         exit(EXIT_FAILURE);
     }
     char* stack = (char*)malloc(THREAD_STACK_SIZE * sizeof(char));
-    new_thread->t_context.uc_link = &scheduler.main_ctx;
+    new_thread->t_context.uc_link = &scheduler.ctx;
     new_thread->t_context.uc_stack.ss_sp = stack;
     new_thread->t_context.uc_stack.ss_size = THREAD_STACK_SIZE;
     new_thread->t_context.uc_stack.ss_flags = 0;
+    sigemptyset(&new_thread->t_context.uc_sigmask);
+    sigprocmask(SIG_UNBLOCK, &scheduler.ctx.uc_sigmask, NULL);
+
     // Make sure that when the context is swapped the <func> is called with
     // <param> parametter
     makecontext(&new_thread->t_context, (void (*)())func, 1, param);
@@ -167,42 +178,47 @@ dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
 }
 
 void dccthread_yield(void) {
-    dccthread_t* current_thread = dccthread_self();
-    current_thread->state = RUNNABLE;
+    sigprocmask(SIG_BLOCK, &scheduler.signals_set, NULL);
+    scheduler.current_thread->state = RUNNABLE;
     // Swap back to the scheduler context
-    swapcontext(&current_thread->t_context, &scheduler.main_ctx);
+    swapcontext(&scheduler.current_thread->t_context, &scheduler.ctx);
+    sigprocmask(SIG_UNBLOCK, &scheduler.signals_set, NULL);
 }
 
 void dccthread_exit(void) {
-    dccthread_t* cur_thread = dccthread_self();
-    struct dnode* cur = scheduler.threads_list->head;
+    sigprocmask(SIG_BLOCK, &scheduler.signals_set, NULL);
     //
+    struct dnode* cur = scheduler.threads_list->head;
     while(cur) {
         dccthread_t* t = cur->data;
-        if(t == cur_thread) {
+        if(t == scheduler.current_thread) {
             // Make sure to release the waiting threads
             if(t->t_waiting) {
                 t->t_waiting->state = RUNNABLE;
             }
-            scheduler.current_thread = NULL;
             // Removes node from the list
             dlist_remove_from_node(scheduler.threads_list, cur);
             // Removes this thread
-            free(cur_thread);
-            ucontext_t local_ctx;
-            // Unblock timer signal
-            // sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
+            free(scheduler.current_thread);
+            scheduler.current_thread = NULL;
 
-            swapcontext(&local_ctx, &scheduler.main_ctx);
+            setcontext(&scheduler.ctx);
+            // Unblock timer signal but unnecessary command
+            sigprocmask(SIG_UNBLOCK, &scheduler.signals_set, NULL);
             return;
         }
         //
         cur = cur->next;
     }
+    // Unreachable code
+    puts(
+        "Unreachable piece of code and unexpected error. Look at "
+        "dccthread_exit source code.");
+    exit(EXIT_FAILURE);
 }
 
 void dccthread_wait(dccthread_t* tid) {
-    dccthread_t* curThread = dccthread_self();
+    sigprocmask(SIG_BLOCK, &scheduler.signals_set, NULL);
 
     // Search for the thread to be awaited
     struct dnode* cur = scheduler.threads_list->head;
@@ -210,17 +226,19 @@ void dccthread_wait(dccthread_t* tid) {
         dccthread_t* t = cur->data;
         // If it's the thread to be awaited
         if(t == tid) {
-            curThread->state = WAITING;
-            t->t_waiting = curThread;
-            // Unblock timer signal
-            // sigprocmask(SIG_UNBLOCK, &scheduler.set, NULL);
+            scheduler.current_thread->state = WAITING;
+            t->t_waiting = scheduler.current_thread;
 
-            swapcontext(&curThread->t_context, &scheduler.main_ctx);
+            swapcontext(&scheduler.current_thread->t_context, &scheduler.ctx);
+            // Unblock timer signal
+            sigprocmask(SIG_UNBLOCK, &scheduler.signals_set, NULL);
             return;
         }
         //
         cur = cur->next;
     }
+    // Unblock timer signal since the thread id doesn't exist
+    sigprocmask(SIG_UNBLOCK, &scheduler.signals_set, NULL);
 }
 
 dccthread_t* dccthread_self(void) { return scheduler.current_thread; }
@@ -228,20 +246,20 @@ dccthread_t* dccthread_self(void) { return scheduler.current_thread; }
 const char* dccthread_name(dccthread_t* tid) { return tid->t_name; }
 
 void configure_timer() {
-    // Define timer interval of 10ms
-    scheduler.timer_interval.it_interval.tv_nsec = 10000000;
-    scheduler.timer_interval.it_interval.tv_sec = 0;
-    scheduler.timer_interval.it_value = scheduler.timer_interval.it_interval;
+    // Initializes signs blockers for timers
+    sigemptyset(&scheduler.signals_set);
+    sigaddset(&scheduler.signals_set, PRE_EMPTION_SIG);
+    // Blocks timer for scheduler thread
+    sigprocmask(SIG_BLOCK, &scheduler.signals_set, NULL);
+    scheduler.ctx.uc_sigmask = scheduler.signals_set;
     // Define timer signal event
-    scheduler.sev.sigev_value.sival_ptr = &scheduler.timer_interval;
+    scheduler.sev.sigev_value.sival_ptr = &scheduler.timer_id;
     scheduler.sev.sigev_notify = SIGEV_SIGNAL;
-    scheduler.sev.sigev_notify_attributes = NULL;
-    scheduler.sev.sigev_signo = SIGUSR1;
-    scheduler.sev.sigev_notify_function = (void (*)(__sigval_t))timer_handler;
-    // Setting the signal handlers before invoking timer
+    scheduler.sev.sigev_signo = PRE_EMPTION_SIG;
+    // Defines action on signal detection
     scheduler.sa.sa_handler = timer_handler;
-    scheduler.sa.sa_flags = SA_RESTART | SA_SIGINFO;
-    sigaction(SIGUSR1, &scheduler.sa, NULL);
+    scheduler.sa.sa_flags = 0;
+    sigaction(PRE_EMPTION_SIG, &scheduler.sa, NULL);
     // Create timer
     if(timer_create(
            CLOCK_PROCESS_CPUTIME_ID, &scheduler.sev, &scheduler.timer_id)
@@ -249,6 +267,11 @@ void configure_timer() {
         printf("Error while creating timer\n");
         exit(EXIT_FAILURE);
     }
+
+    // Define timer interval of 10ms
+    scheduler.timer_interval.it_interval.tv_nsec = 10000000;
+    scheduler.timer_interval.it_interval.tv_sec = 0;
+    scheduler.timer_interval.it_value = scheduler.timer_interval.it_interval;
     // Start timer
     timer_settime(scheduler.timer_id, 0, &scheduler.timer_interval, NULL);
 }
