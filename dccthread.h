@@ -7,6 +7,7 @@
 #include <ucontext.h>
 #include "dlist.h"
 #include "stdio.h"
+#include "string.h"
 
 typedef struct dccthread dccthread_t;
 typedef struct scheduler scheduler_t;
@@ -53,8 +54,11 @@ void dccthread_exit(void);
  */
 void dccthread_wait(dccthread_t* tid);
 
-/* `dccthread_sleep` stops the current thread for the time period
- * specified in `ts`. */
+/**
+ * @brief Function that stops the current thread for a given amount of time.
+ *
+ * @param ts Amount of time the thread will sleep.
+ */
 void dccthread_sleep(struct timespec ts);
 
 /**

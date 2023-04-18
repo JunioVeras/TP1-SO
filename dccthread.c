@@ -14,19 +14,20 @@
 #include "dccthread.h"
 
 #define PRE_EMPTION_SIG SIGUSR1
+#define SLEEP_SIGNAL SIGUSR2
 
 /**
  * @brief An enumeration of all avaiable thread states.
  *
  */
-enum u_int8_t { RUNNING, RUNNABLE, WAITING } THREAD_STATE;
+enum u_int8_t { RUNNING, RUNNABLE, WAITING, SLEEPING } THREAD_STATE;
 
 /**
  * @brief A struct that defines a DCC thread.
  *
  */
 struct dccthread {
-    const char* t_name;
+    char t_name[DCCTHREAD_MAX_NAME_SIZE];
     enum u_int8_t state;
     ucontext_t t_context;
     dccthread_t* t_waiting;
@@ -78,7 +79,7 @@ struct scheduler {
      * @brief A signal set.
      *
      */
-    sigset_t signals_set, os;
+    sigset_t signals_set;
 };
 
 static scheduler_t scheduler;
@@ -95,6 +96,15 @@ void configure_timer(void);
  *
  */
 void timer_handler(int);
+/**
+ * @brief Function that handle the sleep timer event.
+ *
+ * @param signo The signal send to the timer event.
+ * @param wrapped_info A info wrapper holding the `dccthread_t` that is going to
+ * be awaken.
+ * @param _
+ */
+void sleep_timer_handler(int signo, siginfo_t* wrapped_info, void* _);
 
 /* -------------------------------------------------------------------------- */
 
@@ -119,7 +129,8 @@ void dccthread_init(void (*func)(int), int param) {
         // Iterate over thread lists
         while(cur) {
             dccthread_t* curThread = cur->data;
-            if(curThread->state != WAITING) {
+            // Only execute RUNNABLE threads (WAITING and SLEEPING are ignored)
+            if(curThread->state < WAITING) {
                 // Set some flags to indicate the current thread being used
                 curThread->state = RUNNING;
                 scheduler.current_thread = curThread;
@@ -137,6 +148,7 @@ void dccthread_init(void (*func)(int), int param) {
                     if(curThread->state != RUNNING)
                         dlist_push_right(scheduler.threads_list, curThread);
                 }
+
                 break;
             }
 
@@ -152,7 +164,7 @@ void dccthread_init(void (*func)(int), int param) {
 dccthread_t* dccthread_create(const char* name, void (*func)(int), int param) {
     dccthread_t* new_thread = (dccthread_t*)malloc(sizeof(dccthread_t));
     // Instantiate the thread
-    new_thread->t_name = name;
+    strcpy(new_thread->t_name, name);
     new_thread->state = RUNNABLE;
     new_thread->t_waiting = NULL;
     // Create a new context and stack
@@ -238,6 +250,54 @@ void dccthread_wait(dccthread_t* tid) {
         cur = cur->next;
     }
     // Unblock timer signal since the thread id doesn't exist
+    sigprocmask(SIG_UNBLOCK, &scheduler.signals_set, NULL);
+}
+
+void sleep_timer_handler(int signo, siginfo_t* wrapped_info, void* _) {
+    dccthread_t* thread = wrapped_info->si_value.sival_ptr;
+    // Unwrap the info and turn the thread executable again
+    thread->state = RUNNABLE;
+}
+
+void dccthread_sleep(struct timespec ts) {
+    sigprocmask(SIG_BLOCK, &scheduler.signals_set, NULL);
+
+    // Blocks the thread from execution
+    scheduler.current_thread->state = SLEEPING;
+
+    struct sigevent sev;
+    timer_t timer_id;
+    // Define timer signal event
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = SLEEP_SIGNAL;
+    sev.sigev_value.sival_ptr =
+        scheduler
+            .current_thread;  // Allow the timer handler to receive your thread
+                              // point related to the correct timer event
+    // Defines action on signal detection
+    struct sigaction sa;
+    sa.sa_sigaction = sleep_timer_handler;
+    sa.sa_flags = SA_SIGINFO;  // Allow the user to pass more infos to the timer
+    sa.sa_mask = scheduler.signals_set;  // Make sure all the signals are
+                                         // blocked inside the handler
+    sigaction(SLEEP_SIGNAL, &sa, NULL);
+    // Create timer
+    if(timer_create(CLOCK_REALTIME, &sev, &timer_id) == -1) {
+        printf("Error while creating timer\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Define timer interval to the desired one
+    struct itimerspec time;
+    time.it_value = ts;
+    time.it_interval.tv_nsec = 0;
+    time.it_interval.tv_sec = 0;
+    // Start timer
+    timer_settime(timer_id, 0, &time, NULL);
+
+    // Swap back to the scheduler context
+    swapcontext(&scheduler.current_thread->t_context, &scheduler.ctx);
+
     sigprocmask(SIG_UNBLOCK, &scheduler.signals_set, NULL);
 }
 
