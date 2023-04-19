@@ -76,4 +76,21 @@ dccthread_t* dccthread_self(void);
  */
 const char* dccthread_name(dccthread_t* tid);
 
+/**
+ * @brief Function that returns the number of threads that are currently waiting
+ * for another one.
+ *
+ * @return int number of threads waiting for another one.
+ */
+int dccthread_nwaiting();
+
+/**
+ * @brief Function that returns the number of threads that have been exited and
+ * were never a target of the waiting function.
+ *
+ * @return int number of threads exited without being target of the waiting
+ * function.
+ */
+int dccthread_nexited();
+
 #endif

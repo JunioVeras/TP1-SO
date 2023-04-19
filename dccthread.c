@@ -80,6 +80,17 @@ struct scheduler {
      *
      */
     sigset_t signals_set;
+    /**
+     * @brief Number of threads waiting for another one.
+     *
+     */
+    u_int64_t n_waiting;
+    /**
+     * @brief Number of threads that have been already exited and has never been
+     * a target of the dccthread_wait function.
+     *
+     */
+    u_int64_t n_exited;
 };
 
 static scheduler_t scheduler;
@@ -111,6 +122,8 @@ void sleep_timer_handler(int signo, siginfo_t* wrapped_info, void* _);
 void dccthread_init(void (*func)(int), int param) {
     // Create the list to hold all the threads managed by the scheduler
     scheduler.threads_list = dlist_create();
+    scheduler.n_waiting = 0;
+    scheduler.n_exited = 0;
     // Create main thread
     dccthread_create("main", func, param);
 
@@ -207,7 +220,15 @@ void dccthread_exit(void) {
             // Make sure to release the waiting threads
             if(t->t_waiting) {
                 t->t_waiting->state = RUNNABLE;
+                scheduler.n_waiting--;
             }
+            // If this thread is not waited by any other, then it was never
+            // waited. Then, the number of exited threads that has never been
+            // target of the waiting function increases.
+            else {
+                scheduler.n_exited++;
+            }
+
             // Removes node from the list
             dlist_remove_from_node(scheduler.threads_list, cur);
             // Removes this thread
@@ -240,6 +261,7 @@ void dccthread_wait(dccthread_t* tid) {
         if(t == tid) {
             scheduler.current_thread->state = WAITING;
             t->t_waiting = scheduler.current_thread;
+            scheduler.n_waiting++;
 
             swapcontext(&scheduler.current_thread->t_context, &scheduler.ctx);
             // Unblock timer signal
@@ -304,6 +326,10 @@ void dccthread_sleep(struct timespec ts) {
 dccthread_t* dccthread_self(void) { return scheduler.current_thread; }
 
 const char* dccthread_name(dccthread_t* tid) { return tid->t_name; }
+
+int dccthread_nwaiting() { return scheduler.n_waiting; }
+
+int dccthread_nexited() { return scheduler.n_exited; }
 
 void configure_timer() {
     // Initializes signs blockers for timers

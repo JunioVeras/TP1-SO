@@ -1,0 +1,8 @@
+Thread-0 will wait for thread-1.
+Thread-3 will wait for thread-4.
+Thread-6 will wait for thread-7.
+Thread-9 will wait for thread-10.
+Thread-12 will wait for thread-13.
+Thread-15 will wait for thread-16.
+Thread-18 will wait for thread-19.
+Thread main executada aqui com argumento 7. Agora, após o fim de tudo, foram 13 threads terminadas sem serem esperadas, afinal temos 20 threads e a cada 3, 1 espera por outra.

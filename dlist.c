@@ -154,10 +154,12 @@ void dlist_remove_from_node(struct dlist* dl, struct dnode* node) /* {{{ */
         dl->tail = NULL;
     }
     else if(node == dl->head) {
+        dl->head->next->prev = NULL;
         dl->head = dl->head->next;
         free(node);
     }
     else if(node == dl->tail) {
+        node->prev->next = NULL;
         dl->tail = node->prev;
         free(node);
     }
@@ -165,6 +167,7 @@ void dlist_remove_from_node(struct dlist* dl, struct dnode* node) /* {{{ */
         struct dnode* prev = node->prev;
         struct dnode* next = node->next;
         prev->next = next;
+        next->prev = prev;
         free(node);
     }
 
